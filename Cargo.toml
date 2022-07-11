@@ -1,0 +1,16 @@
+[package]
+name = "hugengine"
+version = "0.1.0"
+edition = "2021"
+author = "the.hugo.lom@gmail.com"
+default-run = "shaderdev"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+glad-gl = {path = "../libs/glad-gl" }
+resolution = {path= "../resolution" }
+
+[dependencies.glfw]
+git = "https://github.com/bjz/glfw-rs.git"
+# default-features = false 
