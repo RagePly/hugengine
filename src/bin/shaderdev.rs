@@ -278,7 +278,21 @@ fn main() {
 
     let _white_ball = model_manager.add_new(ModelProperty {
         t: ModelType::Sphere,
-        tf: transform!(),
+        tf: transform!(0.0,0.0,-1.0),
+        color: col!(white),
+        material: define_material!(1.0),
+    });
+
+    let _green_ball = model_manager.add_new(ModelProperty {
+        t: ModelType::Sphere,
+        tf: transform!(1.0,0.0,-3.0),
+        color: col!(green),
+        material: define_material!(1.0),
+    });
+
+    let _white_plane = model_manager.add_new(ModelProperty {
+        t: ModelType::Plane,
+        tf: transform!(0.0,-2.0,0.0),
         color: col!(white),
         material: define_material!(1.0),
     });

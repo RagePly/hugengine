@@ -11,6 +11,8 @@ pub mod material;
 pub mod geospace;
 pub mod models;
 
+// pub mod shader_preprocessor;
+
 
 #[cfg(test)]
 mod tests {

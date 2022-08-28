@@ -8,6 +8,7 @@ use crate::NumberOfFields;
 
 pub const SPHERE_ID: i32 = 0;
 pub const BOX_ID: i32 = 1;
+pub const PLANE_ID: i32 = 2;
 /// GUID used to reference a registred object
 pub type ModelId = u32;
 
@@ -15,6 +16,7 @@ pub type ModelId = u32;
 pub enum ModelType {
     Sphere, // radii of 1.0
     Box(f32, f32, f32), // dimensions
+    Plane,
 }
 
 impl ModelType {
@@ -22,6 +24,7 @@ impl ModelType {
         match self {
             ModelType::Sphere => SPHERE_ID,
             ModelType::Box(_,_,_) => BOX_ID,
+            ModelType::Plane => PLANE_ID,
         }
     }
 
@@ -29,6 +32,7 @@ impl ModelType {
         match self {
             ModelType::Sphere => vec!(),
             ModelType::Box(w,h,d) => vec!(*w,*h,*d),
+            ModelType::Plane => vec!(),
         }.into_iter()
     }
 }
@@ -39,6 +43,7 @@ impl NumberOfFields for ModelType {
         match self {
             ModelType::Sphere => 0,
             ModelType::Box(_,_,_) => 3,
+            ModelType::Plane => 0,
         }
     }
 }
