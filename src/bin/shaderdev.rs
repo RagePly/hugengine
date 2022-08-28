@@ -13,9 +13,18 @@ use std::io;
 use std::fs;
 use std::time::{SystemTime, Instant, Duration};
 
-const UNIFORM_TIME:       &'static str = "uTime";
-const UNIFORM_SCREEN_RES: &'static str = "uScreenResolution";
-const UNIFORM_RATIO:      &'static str = "uRatio";
+use hugengine::{define_material, col, transform};
+use hugengine::models::{ModelManager, ModelProperty, ModelType};
+use hugengine::material::Material;
+use hugengine::color::Color;
+use hugengine::geospace::Transform;
+
+
+const UNIFORM_TIME:        &'static str = "uTime";
+const UNIFORM_SCREEN_RES:  &'static str = "uScreenResolution";
+const UNIFORM_RATIO:       &'static str = "uRatio";
+// const UNIFORM_MODEL_INDEX: &'static str = "ModelIndex";
+// const UNIFORM_MODEL_PROPS: &'static str = "ModelProperties";
 
 #[derive(Debug, Clone, Copy)]
 pub enum ShaderType {
@@ -213,11 +222,13 @@ fn last_modified<P: AsRef<Path>>(path: P) -> io::Result<SystemTime> {
     metadata.modified()
 }
 
+// TODO: make these a fallback if not specified
 static VERT_SHADER_PATH: &'static str = r#".\shaders\shader.vert"#;
 static FRAG_SHADER_PATH: &'static str = r#".\shaders\shader.frag"#;
 
 fn main() {
     use CompileProgramError::*;
+    // load GLFW lib and create a window as well as a opengl-target
     let mut glfw = glfw::init(glfw::FAIL_ON_ERRORS).unwrap();
 
     let (mut window, events) = glfw.create_window(
@@ -230,6 +241,7 @@ fn main() {
     window.set_key_polling(true);
     window.make_current();
 
+    // load opengl function-pointers and fetch current version
     gl::load(|e| glfw.get_proc_address_raw(e) as *const std::os::raw::c_void);
 
     let (mut majorv, mut minorv) = (0,0);
@@ -239,12 +251,16 @@ fn main() {
         gl::GetIntegerv(gl::MINOR_VERSION, &mut minorv);
         gl::Viewport(0,0,resolution::RES_720P.w as i32,resolution::RES_720P.h as i32);
     }
-
     println!("using OpenGL version {}.{}", majorv, minorv);
 
+    // vertex-buffer-object, vertex-array-object and ellement-array-buffer-object
     let mut vbo: gl::GLuint = 0;
     let mut vao: gl::GLuint = 0;
     let mut ebo: gl::GLuint = 0;
+    let mut index_ssbo: gl::GLuint = 0;
+    let mut props_ssbo: gl::GLuint = 0;
+    
+    // A square that fills the screen
     let vertices: [gl::GLfloat; 12] = [
          1.0,  1.0, 0.0,  // top right
          1.0, -1.0, 0.0,  // bottom right
@@ -257,14 +273,58 @@ fn main() {
         1, 2, 3,
     ];
 
+    // Objects
+    let mut model_manager = ModelManager::new();
+
+    let _white_ball = model_manager.add_new(ModelProperty {
+        t: ModelType::Sphere,
+        tf: transform!(),
+        color: col!(white),
+        material: define_material!(1.0),
+    });
+
+    // a red, opaque ball above the sphere
+    let _red_box = model_manager.add_new(ModelProperty {
+        t: ModelType::Box(1.0,1.0,1.0),
+        tf: transform!(0.0,0.5,0.0),
+        color: col!(red),
+        material: define_material!(0.0),
+    });
+
+    let (model_indices, model_properties) = model_manager.create_ss_buffers();
+
 
     unsafe {
         gl::GenBuffers(1, &mut vbo);
         gl::GenVertexArrays(1, &mut vao);
         gl::GenBuffers(1, &mut ebo);
+        gl::GenBuffers(1, &mut index_ssbo);
+        gl::GenBuffers(1, &mut props_ssbo);
 
+        // store models in buffer
+        gl::BindBuffer(gl::SHADER_STORAGE_BUFFER, index_ssbo);
+        gl::BufferData(
+            gl::SHADER_STORAGE_BUFFER, 
+            (model_indices.len() * mem::size_of::<i32>()).try_into().unwrap(),
+            model_indices.as_ptr() as *const c_void, 
+            gl::STATIC_DRAW
+        );
+
+        gl::BindBuffer(gl::SHADER_STORAGE_BUFFER, props_ssbo);
+        gl::BufferData(
+            gl::SHADER_STORAGE_BUFFER, 
+            (model_properties.len() * mem::size_of::<f32>()).try_into().unwrap(),
+            model_properties.as_ptr() as *const c_void, 
+            gl::STATIC_DRAW
+        );
+
+        gl::BindBuffer(gl::SHADER_STORAGE_BUFFER, 0);
+
+
+        // store options in va
         gl::BindVertexArray(vao);
 
+        // store vertices in vbo
         gl::BindBuffer(gl::ARRAY_BUFFER, vbo);
         gl::BufferData(
             gl::ARRAY_BUFFER, 
@@ -273,6 +333,7 @@ fn main() {
             gl::STATIC_DRAW,
         );
 
+        // store ordering in ebo
         gl::BindBuffer(gl::ELEMENT_ARRAY_BUFFER, ebo);
         gl::BufferData(
             gl::ELEMENT_ARRAY_BUFFER,
@@ -281,6 +342,7 @@ fn main() {
             gl::STATIC_DRAW,
         );
         
+        // add attributes to verticies (no material-constants, just positions)
         gl::VertexAttribPointer(
             0,
             3,
@@ -293,6 +355,7 @@ fn main() {
         gl::EnableVertexAttribArray(0);
     }
     
+    // timepoints for use to throttle gpu-time
     let mut vert_last_modified: SystemTime = SystemTime::UNIX_EPOCH;
     let mut frag_last_modified: SystemTime = SystemTime::UNIX_EPOCH;
     let mut last_check: SystemTime = SystemTime::UNIX_EPOCH;
@@ -302,31 +365,48 @@ fn main() {
     let mut program_id: Option<gl::GLuint> = None;
 
     while !window.should_close() {
-        match SystemTime::now().duration_since(last_check) {
-            Ok(d) => if d > Duration::from_secs(1) {
+        // check every second if program has been updated
+        if let Ok(d) = SystemTime::now().duration_since(last_check) {
+            if d > Duration::from_secs(1) {
                 last_check = SystemTime::now();
 
                 // check if files have been updated
                 match (last_modified(VERT_SHADER_PATH), last_modified(FRAG_SHADER_PATH)) {
                     (Ok(vert_time), Ok(frag_time)) => {
-                        // recompile program if time has changed
+                        // recompile program if source has changed since last check
                         if (vert_time != vert_last_modified) | (frag_time != frag_last_modified) {
                             print!("compiling shaders...");
                             match compile_program(VERT_SHADER_PATH, FRAG_SHADER_PATH) {
+                                // delete old program if compilation was successfull
                                 Ok(new_program_id) => {
                                     if let Some(id) = program_id {
-                                        unsafe {gl::DeleteProgram(id);}
+                                        unsafe {gl::DeleteProgram(id);} 
                                     }
                                     program_id = Some(new_program_id);
                                     println!("ok!");
-                                    // set constants
+                                    // supply aspect ratio
                                     set_uniform1f(new_program_id, 
                                         UNIFORM_RATIO, 
                                         resolution::RES_720P.get_aspect());
+                                    // supply screenwidth and -height
                                     set_uniform2i(new_program_id, 
                                         UNIFORM_SCREEN_RES,
                                         resolution::RES_720P.w as i32, 
-                                        resolution::RES_720P.w as i32);
+                                        resolution::RES_720P.h as i32);
+
+                                    // supply object data
+    // Getting the position GLuint glGetProgramResourceIndex( GLuint program, GL_SHADER_STORAGE_BLOCK, const char *name );
+                                    unsafe {
+                                        gl::UseProgram(new_program_id);
+
+                                        gl::BindBuffer(gl::SHADER_STORAGE_BUFFER, index_ssbo);
+                                        gl::BindBufferBase(gl::SHADER_STORAGE_BUFFER, 4, index_ssbo);
+
+                                        gl::BindBuffer(gl::SHADER_STORAGE_BUFFER, props_ssbo);
+                                        gl::BindBufferBase(gl::SHADER_STORAGE_BUFFER, 5, props_ssbo);
+
+                                        gl::BindBuffer(gl::SHADER_STORAGE_BUFFER, 0);
+                                    }
 
                                     program_birth = Instant::now();
                                 }
@@ -346,10 +426,13 @@ fn main() {
                                     println!("\nfailed to initialize c-string");
                                 }
                             }
+
+                            // update timestamp
                             vert_last_modified = vert_time;
                             frag_last_modified = frag_time;
                         }
                     }
+                    // couldn't load timestamps from sources, list errors
                     (vert, frag) => {
                         if let Err(vert_error) = vert {
                             println!("failed to load metadata from {VERT_SHADER_PATH}, due to:\n{vert_error:?}");
@@ -359,8 +442,9 @@ fn main() {
                         }
                     }
                 }
-            },
-            _ => (),
+            }
+        } else {
+            println!("A file was last modified in the future...");
         }
 
         // cap fps at 30
