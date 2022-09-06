@@ -1,6 +1,6 @@
 extern crate glfw;
 extern crate glad_gl;
-extern crate resolution;
+extern crate cgmath;
 
 use glfw::{Action, Context, Key};
 use glad_gl::gl;
@@ -19,10 +19,22 @@ use hugengine::material::Material;
 use hugengine::color::Color;
 use hugengine::geospace::Transform;
 
+use cgmath::{Vector3, Basis3, Rotation, Rotation3, Rad, Zero, InnerSpace};
+
 
 const UNIFORM_TIME:        &'static str = "uTime";
 const UNIFORM_SCREEN_RES:  &'static str = "uScreenResolution";
 const UNIFORM_RATIO:       &'static str = "uRatio";
+const UNIFORM_CAMPITCH:    &'static str = "uCamPitch";
+const UNIFORM_CAMYAW:      &'static str = "uCamYaw";
+const UNIFORM_CAMPOS:      &'static str = "uCamPos";
+
+const CAMERA_MOVEMENTSPEED: f32 = 1.0;  // Units per second
+const CAMERA_ROTATIONSPEED: f32 = 1.0;  // Rad per second
+
+const WINDOW_HEIGHT: i32 = 720;
+const WINDOW_WIDTH: i32 = 1280;
+
 // const UNIFORM_MODEL_INDEX: &'static str = "ModelIndex";
 // const UNIFORM_MODEL_PROPS: &'static str = "ModelProperties";
 
@@ -98,6 +110,27 @@ fn set_uniform2i(id: gl::GLuint, varname: &str, v0: gl::GLint, v1: gl::GLint) ->
             return false;
         }
     }
+}
+
+fn set_uniform3f(id: gl::GLuint, varname: &str, v0: gl::GLfloat, v1: gl::GLfloat, v2: gl::GLfloat) -> bool {
+    let cstring = match CString::new(varname) {
+        Ok(s) => s,
+        Err(_) => {
+            return false;
+        }
+    };
+
+    unsafe {
+        let location = gl::GetUniformLocation(id, cstring.as_c_str().as_ptr());
+        if location != -1 {
+            gl::UseProgram(id);
+            gl::Uniform3f(location, v0, v1, v2);
+            return true;
+        } else {
+            return false;
+        }
+    }
+
 }
 
 fn compile_shader(shader_type: ShaderType, source: CString) -> Result<gl::GLuint, CompileProgramError> {
@@ -230,15 +263,19 @@ fn main() {
     use CompileProgramError::*;
     // load GLFW lib and create a window as well as a opengl-target
     let mut glfw = glfw::init(glfw::FAIL_ON_ERRORS).unwrap();
+    let mut window_height = WINDOW_HEIGHT;
+    let mut window_width = WINDOW_WIDTH;
 
     let (mut window, events) = glfw.create_window(
-        resolution::RES_720P.w as u32, 
-        resolution::RES_720P.h as u32, 
+        window_width as u32, 
+        window_height as u32, 
         "Shader-dev 0.1", 
         glfw::WindowMode::Windowed)
         .expect("Failed to create GLFW window.");
 
     window.set_key_polling(true);
+    window.set_size_polling(true);
+
     window.make_current();
 
     // load opengl function-pointers and fetch current version
@@ -249,7 +286,7 @@ fn main() {
     unsafe {
         gl::GetIntegerv(gl::MAJOR_VERSION, &mut majorv);
         gl::GetIntegerv(gl::MINOR_VERSION, &mut minorv);
-        gl::Viewport(0,0,resolution::RES_720P.w as i32,resolution::RES_720P.h as i32);
+        gl::Viewport(0,0,window_width,window_height);
     }
     println!("using OpenGL version {}.{}", majorv, minorv);
 
@@ -378,6 +415,10 @@ fn main() {
     let mut program_birth: Instant = Instant::now();
     let mut program_id: Option<gl::GLuint> = None;
 
+    let mut camera_position: Vector3<f32> = Vector3::zero();
+    let mut camera_pitch: f32 = 0.0;
+    let mut camera_yaw: f32 = 0.0;
+
     while !window.should_close() {
         // check every second if program has been updated
         if let Ok(d) = SystemTime::now().duration_since(last_check) {
@@ -401,12 +442,12 @@ fn main() {
                                     // supply aspect ratio
                                     set_uniform1f(new_program_id, 
                                         UNIFORM_RATIO, 
-                                        resolution::RES_720P.get_aspect());
+                                        window_width as f32 / window_height as f32);
                                     // supply screenwidth and -height
                                     set_uniform2i(new_program_id, 
                                         UNIFORM_SCREEN_RES,
-                                        resolution::RES_720P.w as i32, 
-                                        resolution::RES_720P.h as i32);
+                                        window_width, 
+                                        window_height);
 
                                     // supply object data
     // Getting the position GLuint glGetProgramResourceIndex( GLuint program, GL_SHADER_STORAGE_BLOCK, const char *name );
@@ -462,15 +503,80 @@ fn main() {
         }
 
         // cap fps at 30
-        if Instant::now().duration_since(last_render) > Duration::from_millis(33) {
+        let delta_time = Instant::now().duration_since(last_render);
+        if delta_time > Duration::from_millis(33) {
+            let mut camera_posv: Vector3<f32> = Vector3::zero();
+
+            // update camera position
+            if window.get_key(Key::W) == Action::Press {
+                camera_posv.z = -1.0;
+            }
+
+            if window.get_key(Key::A) == Action::Press {
+                camera_posv.x = -1.0;
+            }
+
+            if window.get_key(Key::S) == Action::Press {
+                camera_posv.z = 1.0;
+            }
+
+            if window.get_key(Key::D) == Action::Press {
+                camera_posv.x = 1.0;
+            }
+
+            if window.get_key(Key::Z) == Action::Press {
+                camera_posv.y = 1.0;
+            }
+
+            if window.get_key(Key::X) == Action::Press {
+                camera_posv.y = -1.0;
+            }
+            
+
+            let dt = delta_time.as_secs_f32();
+            let mag = camera_posv.magnitude2();
+
+            if mag > 0.0 {
+                camera_posv = camera_posv * CAMERA_MOVEMENTSPEED * dt / mag.sqrt();
+            }
+
+            // TODO: apply rotation to camera vector
+
+            // Camera orientation
+            if window.get_key(Key::I) == Action::Press {
+                camera_pitch += dt * CAMERA_ROTATIONSPEED;
+            }
+
+            if window.get_key(Key::J) == Action::Press {
+                camera_yaw += dt * CAMERA_ROTATIONSPEED;
+            }
+
+            if window.get_key(Key::K) == Action::Press {
+                camera_pitch -= dt * CAMERA_ROTATIONSPEED;
+            }
+
+            if window.get_key(Key::L) == Action::Press {
+                camera_yaw -= dt * CAMERA_ROTATIONSPEED;
+            }
+
+            if mag > 0.0 {
+                let movement_rot = Basis3::from_angle_y(Rad(camera_yaw)) * Basis3::from_angle_x(Rad(camera_pitch));
+
+                camera_position += movement_rot.rotate_vector(camera_posv);
+            }
+
+
             unsafe {
                 gl::ClearColor(0.2, 0.3, 0.3, 1.0);
                 gl::Clear(gl::COLOR_BUFFER_BIT);
 
                 if let Some(id) = program_id {
-                    let program_lifetime = Instant::now().duration_since(program_birth).as_millis() as f32 / 1000.0;
+                    let program_lifetime = Instant::now().duration_since(program_birth).as_secs_f32();
                     gl::UseProgram(id);
                     set_uniform1f(id, UNIFORM_TIME, program_lifetime);
+                    set_uniform1f(id, UNIFORM_CAMPITCH, camera_pitch);
+                    set_uniform1f(id, UNIFORM_CAMYAW, camera_yaw);
+                    set_uniform3f(id, UNIFORM_CAMPOS, camera_position.x, camera_position.y, camera_position.z);
                     gl::BindVertexArray(vao);
                     gl::DrawElements(gl::TRIANGLES, 6, gl::UNSIGNED_INT, 0 as *const c_void);
                 }
@@ -482,22 +588,32 @@ fn main() {
 
         glfw.poll_events();
         for (_, event) in glfw::flush_messages(&events) {
-            handle_window_event(&mut window, event);
-        }
-    }
-}
+            match event {
+                glfw::WindowEvent::Key(Key::Escape, _, Action::Press, _) => {
+                    window.set_should_close(true)
+                }
+                glfw::WindowEvent::Size(w, h) => {
+                    window_width = w;
+                    window_height = h;
 
-fn handle_window_event(window: &mut glfw::Window, event: glfw::WindowEvent) {
-    match event {
-        glfw::WindowEvent::Key(Key::Escape, _, Action::Press, _) => {
-            window.set_should_close(true)
-        }
-        glfw::WindowEvent::Size(w, h) => {
-            println!("resize: {w}, {h}");
-            unsafe {
-                gl::Viewport(0,0,w,h);
+                    if let Some(id) = program_id {
+                        set_uniform1f(id, 
+                            UNIFORM_RATIO, 
+                            window_width as f32 / window_height as f32);
+                        // supply screenwidth and -height
+                        set_uniform2i(id, 
+                            UNIFORM_SCREEN_RES,
+                            window_width, 
+                            window_height);
+                    }
+                    unsafe {
+                        gl::Viewport(0,0,window_width, window_height);
+                    }
+                }
+                glfw::WindowEvent::CursorPos(xpos, ypos) => 
+                    println!("Cursor position: ({:?}, {:?})", xpos, ypos),
+                _ => {}
             }
         }
-        _ => {}
     }
 }

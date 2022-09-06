@@ -9,7 +9,7 @@ default-run = "shaderdev"
 
 [dependencies]
 glad-gl = {path = "../libs/glad-gl" }
-resolution = {path= "../resolution" }
+cgmath = "0.18.0"
 
 [dependencies.glfw]
 git = "https://github.com/bjz/glfw-rs.git"

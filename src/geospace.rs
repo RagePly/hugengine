@@ -10,9 +10,9 @@ pub struct Transform {
     pub scale: f32,
 
     // Rotation
-    pub roti: f32,
-    pub rotj: f32,
-    pub rotk: f32
+    pub head: f32,
+    pub pitch: f32,
+    pub rotate: f32
 }
 
 impl NumberOfFields for Transform {
@@ -28,9 +28,9 @@ impl Transform {
             self.y,
             self.z,
             self.scale,
-            self.roti,
-            self.rotj,
-            self.rotk,
+            self.head,
+            self.pitch,
+            self.rotate,
         ).into_iter()
     }
 }
@@ -52,9 +52,9 @@ macro_rules! transform {
             y: $y,
             z: $z,
             scale: $s,
-            roti: $i,
-            rotj: $j,
-            rotk: $k,
+            head: $i,
+            pitch: $j,
+            rotate: $k,
         }
     };
 }

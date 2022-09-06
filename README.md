@@ -27,5 +27,5 @@ HugEngine relies on GLAD 2 for loading GL-function pointers. You will have to co
 
 You'll need to edit the path in `Cargo.toml`.
 
-### (resolution)
-This is a local library that provides some basic screen-resolutions. It will be removed in the future. As for now, there is no public repo and there probably wont ever be one.
+### cgmath
+A linear-algebra library, imported by cargo. [GitHub repo](https://github.com/rustgd/cgmath).

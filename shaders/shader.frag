@@ -12,6 +12,9 @@ out vec4 FragColor;
 uniform float uTime;                // time since start, sec
 uniform float uRatio;               // width:height ratio
 uniform ivec2 uScreenResolution;    // screen-resolution in pixels, int
+uniform float uCamPitch;            // Camera pitch in rad
+uniform float uCamYaw;              // Camera yaw in rad
+uniform vec3  uCamPos;              // Camera position
 
 // NOTE: this binding is statically typed in the shaderdevprogram.
 layout(std430, binding = 4) buffer ModelIndex 
@@ -24,11 +27,117 @@ layout(std430, binding = 5) buffer ModelProperties
     float uModelProps[];
 };
 
+float deg2rad(in float deg) {
+    return PI * deg / 180.0;
+}
+
+vec4 rgba(in int r, in int g, in int b, in int a) {
+    return vec4(
+            float(r) / 255.0,
+            float(g) / 255.0,
+            float(b) / 255.0,
+            float(a) / 255.0);
+}
+vec4 rgb(in int r, in int g, in int b) {
+    return rgba(r,g,b,255);
+}
+
+vec4 blend(in vec4 col1, in vec4 col2, in float factor) {
+    float f = clamp(factor, 0.0, 1.0);
+    return col1 * f + col2 * (1.0 - f);
+}
+
+// TRANSFORM MATRICES
+mat4 translation(const in vec3 t) {
+    return mat4(1.0f, 0.0f, 0.0f, 0.0f,
+                0.0f, 1.0f, 0.0f, 0.0f,
+                0.0f, 0.0f, 1.0f, 0.0f,
+                 t.x,  t.y,  t.z, 1.0f);
+}
+
+mat4 rotate_x(const in float theta) {
+    float s = sin(theta);
+    float c = cos(theta);
+    return mat4(1.0f, 0.0f, 0.0f, 0.0f,
+                0.0f,    c,    s, 0.0f,
+                0.0f,   -s,    c, 0.0f,
+                0.0f, 0.0f, 0.0f, 1.0f);
+}
+
+mat4 rotate_y(const in float theta) {
+    float s = sin(theta);
+    float c = cos(theta);
+    return mat4(   c, 0.0f,   -s, 0.0f,
+                0.0f, 1.0f, 0.0f, 0.0f,
+                   s, 0.0f,    c, 0.0f,
+                0.0f, 0.0f, 0.0f, 1.0f);
+}
+
+mat4 rotate_z(const in float theta) {
+    float s = sin(theta);
+    float c = cos(theta);
+    return mat4(   c,    s, 0.0f, 0.0f,
+                  -s,    c, 0.0f, 0.0f,
+                0.0f, 0.0f, 1.0f, 0.0f,
+                0.0f, 0.0f, 0.0f, 1.0f);
+}
+
+mat4 euler_transform(const in float h, const in float p, const in float r) {
+    return rotate_z(r) * rotate_x(p) * rotate_y(h);
+}
+
+// quaternions
+#define quat vec4
+quat qmult(in quat q, in quat r) {
+    vec3 q_v = q.xyz;
+    vec3 r_v = r.xyz;
+    return quat(cross(q_v, r_v) + r.w * q_v + q.w * r_v, q.w * r.w - dot(q_v, r_v));
+}
+
+quat qconj(in quat q) {
+    return quat(-q.xyz, q.w);
+}
+
+float qnorm(in quat q) {
+    return length(q);
+}
+
+float qnorm2(in quat q) {
+    return dot(q, q);
+}
+
+quat qinv(in quat q) {
+    return qconj(q) / qnorm2(q);
+}
+
+quat qunit(in vec3 u, in float theta) {
+    return quat(sin(theta) * normalize(u), cos(theta));
+}
+
+quat qrotate(in quat q, in vec4 p) {
+    return qmult(q, qmult(p, qinv(q)));
+}
+
+// source: real-time rendering 4ed, eq4.46 (c4.3.2, p80)
+mat4 quat2mat4(in quat q) {
+    return mat4(1.0 - 2.0 * (q.y*q.y + q.z*q.z),   2.0 * (q.x * q.y + q.w * q.z),   2.0 * (q.x * q.z - q.w * q.y), 0.0,
+                  2.0 * (q.x * q.y - q.w * q.z), 1.0 - 2.0 * (q.x*q.x + q.z*q.z),   2.0 * (q.y * q.z + q.w * q.x), 0.0,
+                  2.0 * (q.x * q.z + q.w * q.y),   2.0 * (q.y * q.z - q.w * q.x), 1.0 - 2.0 * (q.x*q.x + q.y*q.y), 0.0,
+                                            0.0,                             0.0,                             0.0, 1.0);
+
+}
+
+struct EulerRotation {
+    float head;
+    float pitch;
+    float roll;
+};
+
 struct Properties {
     // Transform
     vec3 position;
     float scale;
-    vec3 rotation;
+    mat4 rotation;
 
     // Color properties
     vec3 color;
@@ -64,7 +173,7 @@ float get_scale(int i) {
     return uModelProps[i+3];
 }
 
-vec3 get_collor3(int i) {
+vec3 get_color3(int i) {
     return vec3(uModelProps[i+7], uModelProps[i+8], uModelProps[i+9]);
 }
 
@@ -72,15 +181,19 @@ vec4 get_color(int i) {
     return vec4(uModelProps[i+7], uModelProps[i+8], uModelProps[i+9], 1.0);
 }
 
+mat4 get_rotation(int i) {
+    return euler_transform(
+            uModelProps[i+4],
+            uModelProps[i+5],
+            uModelProps[i+6]);
+}
+
+
 // populate the Properties-struct `prop` for the object `i`
 #define fetch_props(prop, i)                \
     prop.position = get_position3(i);       \
     prop.scale = get_scale(i);              \
-    prop.rotation = vec3(                   \
-            uModelProps[i+4],               \
-            uModelProps[i+5],               \
-            uModelProps[i+6]                \
-            );                              \
+    prop.rotation = get_rotation(i);        \
     prop.color = vec3(                      \
             uModelProps[i+7],               \
             uModelProps[i+8],               \
@@ -92,25 +205,7 @@ vec4 get_color(int i) {
 #define BOX_ID 1
 #define PLANE_ID 2
 
-float deg2rad(in float deg) {
-    return PI * deg / 180.0;
-}
 
-vec4 rgba(in int r, in int g, in int b, in int a) {
-    return vec4(
-            float(r) / 255.0,
-            float(g) / 255.0,
-            float(b) / 255.0,
-            float(a) / 255.0);
-}
-vec4 rgb(in int r, in int g, in int b) {
-    return rgba(r,g,b,255);
-}
-
-vec4 blend(in vec4 col1, in vec4 col2, in float factor) {
-    float f = clamp(factor, 0.0, 1.0);
-    return col1 * f + col2 * (1.0 - f);
-}
 
 // TODO: implement robus version, check sec3.9.4
 // Solves a quadratic equation, not accepting complex solutions.
@@ -237,7 +332,11 @@ bool draw_plane(
         out vec3 normal
         )
 {
-    normal = vec3(0.0, 1.0, 0.0); // TODO: change this to match rotation-transform
+    mat4 rotm = get_rotation(i);
+
+    vec4 temp = rotm * vec4(0.0, 1.0, 0.0, 1.0); // TODO: change this to match rotation-transform
+    normal = temp.xyz;
+    
     return intersection_plane(
             ray_o, 
             ray_d, 
@@ -247,13 +346,20 @@ bool draw_plane(
             t_intersect);
 }
 
-// creates a ray pointing to the -z direction
 void create_ray(in float fov_deg, out vec3 ray_o, out vec3 ray_d) {
     float half_fov_rad = deg2rad(fov_deg / 2.0);
     float z = uRatio / tan(half_fov_rad);
 
+
     ray_o = vec3(uRatio * ScreenPos.x, ScreenPos.y, 0.0);
     ray_d = normalize(ray_o - vec3(0.0,0.0,z));
+
+    // create rotation matrix, pitch then yaw
+    mat4 rot = rotate_y(uCamYaw) * rotate_x(uCamPitch);
+    mat4 trans = translation(uCamPos);
+
+    ray_d = (rot * vec4(ray_d, 1.0)).xyz;
+    ray_o = (trans * rot * vec4(ray_o, 1.0)).xyz;
 }
 
 void main()
