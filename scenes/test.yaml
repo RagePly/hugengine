@@ -1,0 +1,30 @@
+# this is a test scene
+scene:
+    models:
+        - type: Sphere
+          radius: 1.0
+          transform:
+            pos: [0.0, 0.0, -10.0]
+            scale: 1.0
+            orientation:
+                head: 0.0
+                pitch: 3.14
+                roll: 0.0
+          color: [1.0, 0.0, 0.0]
+          material:
+            reflectance: 1.0
+        - type: Plane
+          transform:
+            pos: [0.0, -10.0, 0.0]
+            scale: 1.0
+            orientation:
+                head: 0.0
+                pitch: 0.0
+                roll: 0.0
+          color: white
+          material:
+            reflectance: 1.0
+    camera:
+        position: [0.0, 0.0, 0.0]
+        pitch: 0.0
+        yaw: 0.0

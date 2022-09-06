@@ -6,6 +6,9 @@ use crate::material;
 use crate::NumberOfFields;
 
 
+mod parser;
+
+
 pub const SPHERE_ID: i32 = 0;
 pub const BOX_ID: i32 = 1;
 pub const PLANE_ID: i32 = 2;
