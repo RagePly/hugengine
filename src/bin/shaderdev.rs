@@ -18,12 +18,13 @@ use hugengine::models::parser::parse_scene;
 use cgmath::{Vector3, Basis3, Rotation, Rotation3, Rad, Zero, InnerSpace};
 
 
-const UNIFORM_TIME:        &'static str = "uTime";
-const UNIFORM_SCREEN_RES:  &'static str = "uScreenResolution";
-const UNIFORM_RATIO:       &'static str = "uRatio";
-const UNIFORM_CAMPITCH:    &'static str = "uCamPitch";
-const UNIFORM_CAMYAW:      &'static str = "uCamYaw";
-const UNIFORM_CAMPOS:      &'static str = "uCamPos";
+const UNIFORM_TIME:          &'static str = "uTime";
+const UNIFORM_SCREEN_RES:    &'static str = "uScreenResolution";
+const UNIFORM_RATIO:         &'static str = "uRatio";
+const UNIFORM_CAMPITCH:      &'static str = "uCamPitch";
+const UNIFORM_CAMYAW:        &'static str = "uCamYaw";
+const UNIFORM_CAMPOS:        &'static str = "uCamPos";
+const UNIFORM_SKYBOXSAMPLER: &'static str = "uSkyBoxSampler";
 
 const CAMERA_MOVEMENTSPEED: f32 = 1.0;  // Units per second
 const CAMERA_ROTATIONSPEED: f32 = 1.0;  // Rad per second
@@ -83,6 +84,26 @@ fn set_uniform1f(id: gl::GLuint, varname: &str, val: f32) -> bool {
         if location != -1 {
             gl::UseProgram(id);
             gl::Uniform1f(location, val);
+            return true;
+        } else {
+            return false;
+        }
+    }
+}
+
+fn set_uniform1i(id: gl::GLuint, varname: &str, v0: gl::GLint) -> bool {
+    let cstring = match CString::new(varname) {
+        Ok(s) => s,
+        Err(_) => {
+            return false;
+        }
+    };
+
+    unsafe {
+        let location = gl::GetUniformLocation(id, cstring.as_c_str().as_ptr());
+        if location != -1 {
+            gl::UseProgram(id);
+            gl::Uniform1i(location, v0);
             return true;
         } else {
             return false;
@@ -257,6 +278,20 @@ fn last_modified<P: AsRef<Path>>(path: P) -> io::Result<SystemTime> {
 static VERT_SHADER_PATH: &'static str = r#".\shaders\shader.vert"#;
 static FRAG_SHADER_PATH: &'static str = r#".\shaders\shader.frag"#;
 
+#[allow(unused_macros)]
+macro_rules! callgl {
+    ($e:expr) => {
+        while gl::GetError() != gl::NO_ERROR {}
+        $e;
+        {
+            let callgl_error = gl::GetError();
+            if callgl_error != gl::NO_ERROR {
+                println!("opengl error: {},{}: {:?}", file!(), line!(), callgl_error);
+            }
+        }
+    }
+}
+
 fn main() {
     use CompileProgramError::*;
     // load GLFW lib and create a window as well as a opengl-target
@@ -294,6 +329,7 @@ fn main() {
     let mut ebo: gl::GLuint = 0;
     let mut index_ssbo: gl::GLuint = 0;
     let mut props_ssbo: gl::GLuint = 0;
+    let mut skybox_texobj: gl::GLuint = 0;
     
     // A square that fills the screen
     let vertices: [gl::GLfloat; 12] = [
@@ -308,6 +344,14 @@ fn main() {
         1, 2, 3,
     ];
 
+    let mut sides: Vec<Vec<f32>> = (0..6).into_iter().map(|_| (0..256*256*3).into_iter().map(|_| 0.0).collect()).collect();
+    sides[0].as_mut_slice().chunks_mut(3).for_each(|v| { v[0] = 1.0; });
+    sides[1].as_mut_slice().chunks_mut(3).for_each(|v| { v[0] = 0.5; });
+    sides[2].as_mut_slice().chunks_mut(3).for_each(|v| { v[1] = 1.0; });
+    sides[3].as_mut_slice().chunks_mut(3).for_each(|v| { v[1] = 0.5; });
+    sides[4].as_mut_slice().chunks_mut(3).for_each(|v| { v[2] = 1.0; });
+    sides[5].as_mut_slice().chunks_mut(3).for_each(|v| { v[2] = 0.5; });
+
     // Objects
     let scene_source = fs::read_to_string(PATH_SCENE_TEMPLATE).expect("file exists");
     let (mut model_manager, camera_prop) = parse_scene(scene_source.as_str()).expect("scene is correctly formatted");
@@ -319,6 +363,38 @@ fn main() {
         gl::GenBuffers(1, &mut ebo);
         gl::GenBuffers(1, &mut index_ssbo);
         gl::GenBuffers(1, &mut props_ssbo);
+        gl::GenTextures(1, &mut skybox_texobj);
+
+        // create skybox
+        gl::BindTexture(gl::TEXTURE_CUBE_MAP, skybox_texobj);
+        gl::TexParameteri(gl::TEXTURE_CUBE_MAP, gl::TEXTURE_WRAP_S, gl::REPEAT as i32);
+        gl::TexParameteri(gl::TEXTURE_CUBE_MAP, gl::TEXTURE_WRAP_T, gl::REPEAT as i32);
+        gl::TexParameteri(gl::TEXTURE_CUBE_MAP, gl::TEXTURE_MIN_FILTER, gl::LINEAR_MIPMAP_LINEAR as i32);
+        gl::TexParameteri(gl::TEXTURE_CUBE_MAP, gl::TEXTURE_MAG_FILTER, gl::LINEAR as i32);
+        
+        // allocate storage
+        gl::TexImage2D(gl::TEXTURE_CUBE_MAP_POSITIVE_X, 0, gl::RGBA as i32, 256, 256, 0, gl::RGB, gl::FLOAT, 0 as *const c_void);
+        gl::TexImage2D(gl::TEXTURE_CUBE_MAP_NEGATIVE_X, 0, gl::RGBA as i32, 256, 256, 0, gl::RGB, gl::FLOAT, 0 as *const c_void);
+        gl::TexImage2D(gl::TEXTURE_CUBE_MAP_POSITIVE_Y, 0, gl::RGBA as i32, 256, 256, 0, gl::RGB, gl::FLOAT, 0 as *const c_void);
+        gl::TexImage2D(gl::TEXTURE_CUBE_MAP_NEGATIVE_Y, 0, gl::RGBA as i32, 256, 256, 0, gl::RGB, gl::FLOAT, 0 as *const c_void);
+        gl::TexImage2D(gl::TEXTURE_CUBE_MAP_POSITIVE_Z, 0, gl::RGBA as i32, 256, 256, 0, gl::RGB, gl::FLOAT, 0 as *const c_void);
+        gl::TexImage2D(gl::TEXTURE_CUBE_MAP_NEGATIVE_Z, 0, gl::RGBA as i32, 256, 256, 0, gl::RGB, gl::FLOAT, 0 as *const c_void);
+
+        // write texture
+        gl::TexSubImage2D(gl::TEXTURE_CUBE_MAP_POSITIVE_X, 0, 0, 0, 256, 256, gl::RGB, gl::FLOAT, sides[0].as_ptr() as *const c_void);
+        gl::TexSubImage2D(gl::TEXTURE_CUBE_MAP_NEGATIVE_X, 0, 0, 0, 256, 256, gl::RGB, gl::FLOAT, sides[1].as_ptr() as *const c_void);
+        gl::TexSubImage2D(gl::TEXTURE_CUBE_MAP_POSITIVE_Y, 0, 0, 0, 256, 256, gl::RGB, gl::FLOAT, sides[2].as_ptr() as *const c_void);
+        gl::TexSubImage2D(gl::TEXTURE_CUBE_MAP_NEGATIVE_Y, 0, 0, 0, 256, 256, gl::RGB, gl::FLOAT, sides[3].as_ptr() as *const c_void);
+        gl::TexSubImage2D(gl::TEXTURE_CUBE_MAP_POSITIVE_Z, 0, 0, 0, 256, 256, gl::RGB, gl::FLOAT, sides[4].as_ptr() as *const c_void);
+        gl::TexSubImage2D(gl::TEXTURE_CUBE_MAP_NEGATIVE_Z, 0, 0, 0, 256, 256, gl::RGB, gl::FLOAT, sides[5].as_ptr() as *const c_void);
+
+        gl::GenerateMipmap(gl::TEXTURE_CUBE_MAP);
+        
+        gl::BindTexture(gl::TEXTURE_CUBE_MAP, 0);
+
+        gl::Enable(gl::TEXTURE_CUBE_MAP_SEAMLESS);
+
+
 
         // store models in buffer
         gl::BindBuffer(gl::SHADER_STORAGE_BUFFER, index_ssbo);
@@ -545,6 +621,11 @@ fn main() {
                     set_uniform1f(id, UNIFORM_CAMPITCH, camera_pitch);
                     set_uniform1f(id, UNIFORM_CAMYAW, camera_yaw);
                     set_uniform3f(id, UNIFORM_CAMPOS, camera_position.x, camera_position.y, camera_position.z);
+
+                    set_uniform1i(id, UNIFORM_SKYBOXSAMPLER, 0);
+                    gl::ActiveTexture(gl::TEXTURE0);
+                    gl::BindTexture(gl::TEXTURE_CUBE_MAP, skybox_texobj);
+
                     gl::BindVertexArray(vao);
                     gl::DrawElements(gl::TRIANGLES, 6, gl::UNSIGNED_INT, 0 as *const c_void);
                 }

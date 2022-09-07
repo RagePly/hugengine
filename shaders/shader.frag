@@ -16,6 +16,7 @@ uniform ivec2 uScreenResolution;    // screen-resolution in pixels, int
 uniform float uCamPitch;            // Camera pitch in rad
 uniform float uCamYaw;              // Camera yaw in rad
 uniform vec3  uCamPos;              // Camera position
+uniform samplerCube uSkyBoxSampler; // Skybox texture sampler
 
 // NOTE: this binding is statically typed in the shaderdevprogram.
 layout(std430, binding = 4) buffer ModelIndex 
@@ -390,7 +391,7 @@ struct ReflectionData {
 void main()
 {
     vec3 ray_o, ray_d;
-    create_ray(90.0, ray_o, ray_d);
+    create_ray(110.0, ray_o, ray_d);
 
     float t_max = 1000.0;
     int reflections = 0;
@@ -461,10 +462,12 @@ void main()
     }
 
     // apply sky-color from the last vector direction
-    float latitude = dot(ray_d, vec3(0.0, 1.0, 0.0));
-    vec4 sky_color = rgb(85, 170, 224);
-    vec4 sunset_color = rgb(246, 109, 73);
-    FragColor = blend(sky_color, sunset_color, smoothstep(0.0, 0.5, latitude)) * smoothstep(-0.3, 0.0, latitude);
+    // float latitude = dot(ray_d, vec3(0.0, 1.0, 0.0));
+    // vec4 sky_color = rgb(85, 170, 224);
+    // vec4 sunset_color = rgb(246, 109, 73);
+    // FragColor = blend(sky_color, sunset_color, smoothstep(0.0, 0.5, latitude)) * smoothstep(-0.3, 0.0, latitude);
+
+    FragColor = texture(uSkyBoxSampler, ray_d);
     
     // run through stack backwards
     for (int i = reflections - 1; i >= 0; i--) {
