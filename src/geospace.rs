@@ -1,5 +1,6 @@
 use crate::NumberOfFields;
 
+#[derive(Debug, PartialEq)]
 pub struct Transform {
     // Position
     pub x: f32,
@@ -33,18 +34,32 @@ impl Transform {
             self.rotate,
         ).into_iter()
     }
+
+    pub fn new() -> Self {
+        Transform {
+            x: 0.0,
+            y: 0.0,
+            z: 0.0,
+
+            scale: 1.0,
+
+            head: 0.0,
+            pitch: 0.0,
+            rotate: 0.0,
+        }
+    }
 }
 
 #[macro_export]
 macro_rules! transform {
     () => {
-        transform!(0.0,0.0,0.0);
+        transform!(0.0,0.0,0.0)
     };
     ($x:expr, $y:expr, $z:expr) => {
-        transform!($x, $y, $z, 1.0, 0.0, 0.0, 0.0);
+        transform!($x, $y, $z, 1.0, 0.0, 0.0, 0.0)
     };
     ($x:expr, $y:expr, $z:expr, $s:expr) => {
-        transform!($x, $y, $z, $s, 0.0, 0.0, 0.0);
+        transform!($x, $y, $z, $s, 0.0, 0.0, 0.0)
     };
     ($x:expr, $y:expr, $z:expr, $s:expr, $i:expr, $j:expr, $k:expr) => {
         Transform {

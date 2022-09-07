@@ -13,11 +13,7 @@ use std::io;
 use std::fs;
 use std::time::{SystemTime, Instant, Duration};
 
-use hugengine::{define_material, col, transform};
-use hugengine::models::{ModelManager, ModelProperty, ModelType};
-use hugengine::material::Material;
-use hugengine::color::Color;
-use hugengine::geospace::Transform;
+use hugengine::models::parser::parse_scene;
 
 use cgmath::{Vector3, Basis3, Rotation, Rotation3, Rad, Zero, InnerSpace};
 
@@ -34,6 +30,8 @@ const CAMERA_ROTATIONSPEED: f32 = 1.0;  // Rad per second
 
 const WINDOW_HEIGHT: i32 = 720;
 const WINDOW_WIDTH: i32 = 1280;
+
+const PATH_SCENE_TEMPLATE: &'static str = "scenes/template.yaml";
 
 // const UNIFORM_MODEL_INDEX: &'static str = "ModelIndex";
 // const UNIFORM_MODEL_PROPS: &'static str = "ModelProperties";
@@ -311,39 +309,9 @@ fn main() {
     ];
 
     // Objects
-    let mut model_manager = ModelManager::new();
-
-    let _white_ball = model_manager.add_new(ModelProperty {
-        t: ModelType::Sphere,
-        tf: transform!(0.0,0.0,-1.0),
-        color: col!(white),
-        material: define_material!(1.0),
-    });
-
-    let _green_ball = model_manager.add_new(ModelProperty {
-        t: ModelType::Sphere,
-        tf: transform!(1.0,0.0,-3.0),
-        color: col!(green),
-        material: define_material!(1.0),
-    });
-
-    let _white_plane = model_manager.add_new(ModelProperty {
-        t: ModelType::Plane,
-        tf: transform!(0.0,-2.0,0.0),
-        color: col!(white),
-        material: define_material!(1.0),
-    });
-
-    // a red, opaque ball above the sphere
-    let _red_box = model_manager.add_new(ModelProperty {
-        t: ModelType::Box(1.0,1.0,1.0),
-        tf: transform!(0.0,0.5,0.0),
-        color: col!(red),
-        material: define_material!(0.0),
-    });
-
+    let scene_source = fs::read_to_string(PATH_SCENE_TEMPLATE).expect("file exists");
+    let (mut model_manager, camera_prop) = parse_scene(scene_source.as_str()).expect("scene is correctly formatted");
     let (model_indices, model_properties) = model_manager.create_ss_buffers();
-
 
     unsafe {
         gl::GenBuffers(1, &mut vbo);
@@ -415,9 +383,9 @@ fn main() {
     let mut program_birth: Instant = Instant::now();
     let mut program_id: Option<gl::GLuint> = None;
 
-    let mut camera_position: Vector3<f32> = Vector3::zero();
-    let mut camera_pitch: f32 = 0.0;
-    let mut camera_yaw: f32 = 0.0;
+    let mut camera_position = Vector3::new(camera_prop.tf.x, camera_prop.tf.y, camera_prop.tf.z);
+    let mut camera_pitch: f32 = camera_prop.tf.pitch;
+    let mut camera_yaw: f32 = camera_prop.tf.head;
 
     while !window.should_close() {
         // check every second if program has been updated

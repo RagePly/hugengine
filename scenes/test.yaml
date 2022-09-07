@@ -2,7 +2,6 @@
 scene:
     models:
         - type: Sphere
-          radius: 1.0
           transform:
             pos: [0.0, 0.0, -10.0]
             scale: 1.0

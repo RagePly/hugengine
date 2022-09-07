@@ -1,5 +1,6 @@
 use crate::NumberOfFields;
 
+#[derive(Debug, PartialEq)]
 pub struct Material {
     pub reflectance: f32
 }

@@ -6,3 +6,7 @@
     - [ ] Specify what source file(s) to use, have fallback
     - [ ] Compilation-error is a fail-condition?
     - [ ] FPS cap
+- [ ] Add crate-absolute path struct inside macros
+- [ ] Refactor member `rotate` to `roll` in `crate::geospace::Transform` 
+- [ ] Add cgmath `Vector3` to all _vector types_ in project
+- [ ] Have consistent sage of `head, pitch, rotate` or `yaw, pitch, roll` and so on...

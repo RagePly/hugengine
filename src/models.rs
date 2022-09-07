@@ -1,12 +1,13 @@
 use std::collections::HashMap;
 use std::iter::IntoIterator;
+use std::ops::Index;
 use crate::geospace;
 use crate::color;
 use crate::material;
 use crate::NumberOfFields;
 
 
-mod parser;
+pub mod parser;
 
 
 pub const SPHERE_ID: i32 = 0;
@@ -16,6 +17,7 @@ pub const PLANE_ID: i32 = 2;
 pub type ModelId = u32;
 
 /// Contains data about the object size, variable
+#[derive(Debug, PartialEq)]
 pub enum ModelType {
     Sphere, // radii of 1.0
     Box(f32, f32, f32), // dimensions
@@ -40,6 +42,19 @@ impl ModelType {
     }
 }
 
+impl TryFrom<&str> for ModelType {
+    type Error = ();
+
+    fn try_from(name: &str) -> Result<Self, Self::Error> {
+        match name.to_lowercase().as_str() {
+             "sphere" => Ok(Self::Sphere),
+             "plane" => Ok(Self::Plane),
+             "box" => Ok(Self::Box(1.0,1.0,1.0)),
+             _ => Err(()),
+        }
+    }
+}
+
 impl NumberOfFields for ModelType {
     /// Returns number of extra items allocated
     fn nr_fields(&self) -> usize {
@@ -52,6 +67,7 @@ impl NumberOfFields for ModelType {
 }
 
 /// The properties fully describing each object
+#[derive(Debug, PartialEq)]
 pub struct ModelProperty {
     pub t: ModelType,
     pub tf: geospace::Transform,
@@ -116,4 +132,30 @@ impl ModelManager {
 
         (keys, prop)
     }
+
+    pub fn len(&self) -> usize {
+        self.registry.len()
+    }
 }
+
+impl Index<&ModelId> for ModelManager {
+    type Output = ModelProperty;
+
+    fn index(&self, index: &ModelId) -> &Self::Output {
+        &self.registry[index] 
+    }
+}
+
+#[derive(Debug, PartialEq)]
+pub struct CameraProperty {
+    pub tf: geospace::Transform,
+}
+
+impl CameraProperty {
+    pub fn new() -> Self {
+        CameraProperty {
+            tf: geospace::Transform::new(),
+        }
+    }
+}
+

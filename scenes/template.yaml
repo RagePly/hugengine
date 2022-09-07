@@ -1,0 +1,26 @@
+# Scene Template
+# Every item marked optional has default values, which are displayed within the first item
+
+# Top scope is a key named scene
+scene:
+  models: # an array of models
+    - type: sphere # mandatory, controls how the shader should draw the object
+      transform: # optional
+        pos: [0.0, 0.0, 0.0] # optional, position of model
+        scale: 1.0 # optional, scale of object, all objects are usually of size "1" originally
+        orientation:
+          head: 0.0  # optional, rotation around y-axis in rads
+          pitch: 0.0 # optional, rotation around x-axis in rads
+          roll: 0.0  # optional, rotation around z-axis in rads
+      color: light gray # optional, what base-color the object should have
+      material: #optional, controls material properties
+        reflectance: 1.0 # optional, how much light should reflect on the surface
+    - type: Plane # types are case-insensative
+      transform:
+        pos: [0.0, -10.0, 0.0]
+      color: [0.3, 0.1, 0.4] # color can be specified by rgb values instead
+      # remaining fields left out, default values are used
+  camera:
+    position: [0.0, 0.0, 10.0] # optional, default is at origin
+    pitch: 0.0 # optional, controls the up/down looking direction in rad (rotation around x-axis)
+    yaw: 0.0 # optional, controls the left/right looking direction in rad (rotation around y-axis)
