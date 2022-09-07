@@ -19,7 +19,23 @@ scene:
       transform:
         pos: [0.0, -10.0, 0.0]
       color: [0.3, 0.1, 0.4] # color can be specified by rgb values instead
+      material:
+        reflectance: 0.9
       # remaining fields left out, default values are used
+    - type: sphere
+      transform:
+        pos: [0.0, 0.0, -5.0]
+        scale: 3.0
+      color: blue
+      material:
+        reflectance: 0.5
+    - type: sphere
+      transform:
+        pos: [0.0, 6.5, -5.0]
+        scale: 3.0
+      color: blue
+      material:
+        reflectance: 0.5
   camera:
     position: [0.0, 0.0, 10.0] # optional, default is at origin
     pitch: 0.0 # optional, controls the up/down looking direction in rad (rotation around x-axis)

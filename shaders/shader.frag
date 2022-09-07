@@ -3,7 +3,8 @@
 #define PI 3.141592653589793
 #define SQRT2 1.4142135623730951
 #define INV_SQRT2 0.7071067811865475
-#define MB_STEPS 200
+#define MAX_REFLECTIONS 4
+#define BUMB_AMOUNT 0.00001
 
 
 in vec2 ScreenPos;
@@ -19,6 +20,7 @@ uniform vec3  uCamPos;              // Camera position
 // NOTE: this binding is statically typed in the shaderdevprogram.
 layout(std430, binding = 4) buffer ModelIndex 
 {
+    // [object0_type, object0_index, object1_type, object1_index,...]
     int uModelIndex[];
 };
 
@@ -26,6 +28,16 @@ layout(std430, binding = 5) buffer ModelProperties
 {
     float uModelProps[];
 };
+
+// SHAPING FUNCTIONS
+
+// scales and translates x such that the range [0, 1] becomes [a, b]. 
+// Will invert if a > b and cause the range afterwards to be [b, a].
+float squash(in float x, in float a, in float b) {
+    return x * (b - a) + a;
+}
+
+// COLOR FUNCTIONS
 
 float deg2rad(in float deg) {
     return PI * deg / 180.0;
@@ -188,6 +200,10 @@ mat4 get_rotation(int i) {
             uModelProps[i+6]);
 }
 
+float get_reflectance(int i) {
+    return uModelProps[i+10];
+}
+
 
 // populate the Properties-struct `prop` for the object `i`
 #define fetch_props(prop, i)                \
@@ -335,7 +351,7 @@ bool draw_plane(
     mat4 rotm = get_rotation(i);
 
     vec4 temp = rotm * vec4(0.0, 1.0, 0.0, 1.0); // TODO: change this to match rotation-transform
-    normal = temp.xyz;
+    normal = normalize(temp.xyz);
     
     return intersection_plane(
             ray_o, 
@@ -362,78 +378,104 @@ void create_ray(in float fov_deg, out vec3 ray_o, out vec3 ray_d) {
     ray_o = (trans * rot * vec4(ray_o, 1.0)).xyz;
 }
 
+struct ReflectionData {
+    int model_type;  // type of object
+    int model_index; // index into properties of object this reflection represents
+    vec3 normal;     // normal-vector of the intersection point
+    vec3 ray_dir;    // direction of ray
+    vec3 ray_orig;   // ray origin
+    float dist;      // distance from the last source, t_value
+};
+
 void main()
 {
-    FragColor = vec4(0.0,0.0,0.0,1.0);
-
-
-    vec4 c = vec4(0.0,0.0,0.0,0.0);
-    float t_max = 1000.0;
-    float t_smallest = t_max;
-    int i_smallest = 0;
-
-    vec3 ray_o, ray_d, reflection_normal;
+    vec3 ray_o, ray_d;
     create_ray(90.0, ray_o, ray_d);
-    vec2 p = vec2(uRatio * ScreenPos.x, ScreenPos.y);
-    bool intersection_found = false;
-    for (int i = 0; i < uModelIndex.length() / 2; i++) 
-    {
-        int model_type = uModelIndex[2 * i];
-        int prop_index = uModelIndex[2 * i + 1];
-        float t_intersect;
 
-        switch (model_type) {
-            case SPHERE_ID: // sphere
-                if (draw_sphere(prop_index, 
-                            ray_o, 
-                            ray_d, 
-                            1000.0,
-                            t_intersect,
-                            reflection_normal)
-                   ) 
-                {
-                    i_smallest = t_intersect < t_smallest ? i : i_smallest;
-                    t_smallest = t_intersect < t_smallest ? t_intersect : t_smallest;
-                    intersection_found = true;
+    float t_max = 1000.0;
+    int reflections = 0;
+    
+    ReflectionData reflect_stack[MAX_REFLECTIONS];
+
+    for (; reflections < MAX_REFLECTIONS; reflections++) {
+        float t_smallest = t_max;
+        int i_smallest = 0;
+        vec3 reflection_normal;
+
+        // loop through every object
+        bool intersection_found = false;
+        for (int i = 0; i < uModelIndex.length() / 2; i++) 
+        {
+            vec3 temp_reflection;
+            int model_type = uModelIndex[2 * i];
+            int prop_index = uModelIndex[2 * i + 1];
+            float t_intersect;
+            bool flag = false;
+
+            switch (model_type) {
+                case SPHERE_ID: // sphere
+                    flag = draw_sphere(prop_index, 
+                                ray_o, 
+                                ray_d, 
+                                t_max,
+                                t_intersect,
+                                temp_reflection);
+                    break;
+                case PLANE_ID: // plane
+                    flag = draw_plane(prop_index, 
+                                ray_o, 
+                                ray_d, 
+                                t_max,
+                                t_intersect,
+                                temp_reflection);
+                    break;
+                default:
+                    break;
+            }
+
+            // any intersection happened
+            if (flag) {
+                if (t_intersect < t_smallest) {
+                    t_smallest = t_intersect;
+                    i_smallest = i;
+                    reflection_normal = temp_reflection;
                 }
-                break;
-            case PLANE_ID: // box
-                if (draw_plane(prop_index, 
-                            ray_o, 
-                            ray_d, 
-                            1000.0,
-                            t_intersect,
-                            reflection_normal)
-                   ) 
-                {
-                    i_smallest = t_intersect < t_smallest ? i : i_smallest;
-                    t_smallest = t_intersect < t_smallest ? t_intersect : t_smallest;
-                    intersection_found = true;
-                }
-                break;
-            default:
-                break;
+                intersection_found = true;
+            }
+        }
+
+        if (intersection_found) {
+            reflect_stack[reflections].model_type  = uModelIndex[i_smallest * 2];
+            reflect_stack[reflections].model_index = uModelIndex[i_smallest * 2 + 1];
+            reflect_stack[reflections].normal      = reflection_normal;
+            reflect_stack[reflections].ray_dir     = ray_d;
+            reflect_stack[reflections].ray_orig    = ray_o;
+            reflect_stack[reflections].dist        = t_smallest;
+
+            // apply reflection
+            ray_o = ray_o + ray_d * t_smallest + reflection_normal * BUMB_AMOUNT;
+            ray_d = reflect(ray_d, reflection_normal);
+        } else {
+            break;
         }
     }
 
-    // draw sky
+    // apply sky-color from the last vector direction
+    float latitude = dot(ray_d, vec3(0.0, 1.0, 0.0));
     vec4 sky_color = rgb(85, 170, 224);
     vec4 sunset_color = rgb(246, 109, 73);
-    FragColor = blend(sky_color, sunset_color, smoothstep(0.0, 0.5, p.y)) * smoothstep(-0.3, 0.0, p.y);
+    FragColor = blend(sky_color, sunset_color, smoothstep(0.0, 0.5, latitude)) * smoothstep(-0.3, 0.0, latitude);
+    
+    // run through stack backwards
+    for (int i = reflections - 1; i >= 0; i--) {
+        // get base color
+        vec4 object_color = get_color(reflect_stack[i].model_index);
+        vec3 surface_normal = reflect_stack[i].normal;
 
-    if (intersection_found) {
-        int draw_model = uModelIndex[2 * i_smallest];
-        int draw_index = uModelIndex[2 * i_smallest + 1];
+        // apply shading
+        object_color = object_color * squash(smoothstep(-0.2, 1.0, dot(surface_normal, vec3(INV_SQRT2, INV_SQRT2, 0.0))), 0.2, 1.0);
 
-        switch (draw_model) {
-            case SPHERE_ID:
-                FragColor = get_color(draw_index);
-                break;
-            case PLANE_ID:
-                FragColor = get_color(draw_index);
-                break;
-            default:
-                break;
-        }
+        // blend with previous color (sky if no prev object)
+        FragColor = blend(object_color, FragColor, get_reflectance(reflect_stack[i].model_index)); 
     }
 }
